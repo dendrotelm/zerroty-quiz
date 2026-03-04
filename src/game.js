@@ -18,14 +18,18 @@ export class QuizGame {
     this.timerInterval = null;
     this.isPaused = false;
     this.isOnline = false;
+    this.isHost = false;
     this.timeLeft = 30;
     
     this.init();
     
-    // Klawisz M = PAUZA (działa tylko w lokalnym Hot-Seat)
     window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'm' && !this.isOnline && this.playersData && this.categoryBox && this.categoryBox.textContent !== "KONIEC GRY!") {
-        this.togglePause();
+      if (e.key.toLowerCase() === 'm' && this.categoryBox && this.categoryBox.textContent !== "KONIEC GRY!") {
+        if (!this.isOnline && this.playersData) {
+          this.togglePause(); // Pauza lokalna
+        } else if (this.isOnline && this.isHost && this.socket) {
+          this.socket.emit('togglePause', { roomId: this.currentRoom }); // Pauza hosta w sieci
+        }
       }
     });
   }
@@ -33,12 +37,10 @@ export class QuizGame {
   init() {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.container.appendChild(this.renderer.domElement);
-
     const light = new THREE.PointLight(0xffffff, 2, 100);
     light.position.set(0, 5, 5);
     this.scene.add(light);
     this.scene.add(new THREE.AmbientLight(0x404040));
-
     this.camera.position.z = 8;
     this.camera.position.y = 2;
     this.camera.lookAt(0, 0.5, 0);
@@ -49,45 +51,41 @@ export class QuizGame {
   }
 
   quit() {
-    // Czyszczenie interwałów, pauzy i modeli, aby wrócić czysto do menu
     clearInterval(this.timerInterval);
     this.isPaused = false;
     this.isOnline = false;
+    this.isHost = false;
     if(this.pauseOverlay) this.pauseOverlay.style.display = 'none';
     this.players.forEach(p => this.scene.remove(p));
     this.players = [];
     this.playersData = null;
     
-    // Odpięcie nasłuchów serwera (żeby się nie dublowały przy ponownym starcie)
     if(this.socket) {
       this.socket.off('newQuestion');
       this.socket.off('timerTick');
       this.socket.off('roundResult');
       this.socket.off('updateScores');
       this.socket.off('gameOver');
+      this.socket.off('gamePaused');
+      this.socket.off('gameResumed');
     }
   }
 
   createPlayers() {
     this.players.forEach(p => this.scene.remove(p));
     this.players = [];
-
     const colors = [0x00ffff, 0x00ff00, 0xffff00, 0xff00ff];
     const textureLoader = new THREE.TextureLoader();
 
     for(let i = 0; i < this.numPlayers; i++) {
       const geometry = new THREE.CapsuleGeometry(0.5, 1, 16, 16);
       const materialOpts = { color: 0xffffff, emissive: colors[i], emissiveIntensity: 0.8 };
-
-      if (this.playersData[i] && this.playersData[i].avatar) {
-        materialOpts.map = textureLoader.load(this.playersData[i].avatar);
-      }
+      if (this.playersData[i] && this.playersData[i].avatar) materialOpts.map = textureLoader.load(this.playersData[i].avatar);
 
       const material = new THREE.MeshPhongMaterial(materialOpts);
       const char = new THREE.Mesh(geometry, material);
       const offset = (this.numPlayers - 1) / 2;
       char.position.x = (i - offset) * 2.5;
-      
       this.players.push(char);
       this.scene.add(char);
     }
@@ -106,7 +104,6 @@ export class QuizGame {
     if (!this.isPaused) {
       this.players.forEach((p, i) => {
         p.position.y = Math.sin(Date.now() * 0.003 + i) * 0.2 + 0.5;
-        // W online kręcą się wszyscy. W lokalu tylko gracz, którego jest tura.
         if (this.isOnline) {
           p.rotation.y += 0.01;
         } else if (this.statusBar && i === this.currentPlayer) {
@@ -123,7 +120,10 @@ export class QuizGame {
     this.isPaused = !this.isPaused;
     if (this.isPaused) {
       clearInterval(this.timerInterval);
-      if(this.pauseOverlay) this.pauseOverlay.style.display = 'flex';
+      if(this.pauseOverlay) {
+        document.getElementById('pause-text').textContent = "PAUZA";
+        this.pauseOverlay.style.display = 'flex';
+      }
     } else {
       if(this.pauseOverlay) this.pauseOverlay.style.display = 'none';
       this.resumeTimer();
@@ -163,15 +163,12 @@ export class QuizGame {
     try {
       const response = await fetch('/questions.json');
       const data = await response.json();
-      
       let filteredData = data.filter(q => this.selectedCats.includes(q.category));
       this.questions = filteredData.sort(() => Math.random() - 0.5);
-      
       if(this.questions.length === 0) {
         this.questionBox.textContent = "Brak pytań w wybranych kategoriach!";
         return;
       }
-      
       this.updateStatusBar();
       this.showCurrentQuestion();
     } catch (error) {
@@ -213,13 +210,10 @@ export class QuizGame {
   resumeTimer() {
     clearInterval(this.timerInterval);
     this.timerBox.textContent = `00:${this.timeLeft < 10 ? '0'+this.timeLeft : this.timeLeft}`;
-
     this.timerInterval = setInterval(() => {
       this.timeLeft--;
       this.timerBox.textContent = `00:${this.timeLeft < 10 ? '0'+this.timeLeft : this.timeLeft}`;
-      if (this.timeLeft <= 0) {
-        this.checkAnswer(-1); // Timeout
-      }
+      if (this.timeLeft <= 0) this.checkAnswer(-1); 
     }, 1000);
   }
 
@@ -228,15 +222,11 @@ export class QuizGame {
     const q = this.questions[this.currentQuestionIndex];
     const isSpec = this.playersData[this.currentPlayer].specialization === q.category;
     
-    // Logika Specjalizacji: +2 za dobrą, -1 za złą
     if (selectedIndex === q.correct) {
       this.scores[this.currentPlayer] += isSpec ? 2 : 1;
     } else {
-      if (isSpec && selectedIndex !== -1) { 
-        this.scores[this.currentPlayer] -= 1;
-      } else if (isSpec && selectedIndex === -1) {
-        this.scores[this.currentPlayer] -= 1; 
-      }
+      if (isSpec && selectedIndex !== -1) this.scores[this.currentPlayer] -= 1;
+      else if (isSpec && selectedIndex === -1) this.scores[this.currentPlayer] -= 1; 
     }
     
     this.currentPlayer = (this.currentPlayer + 1) % this.numPlayers;
@@ -247,7 +237,6 @@ export class QuizGame {
       this.currentRound++;
       this.questionsInCurrentRound = 0;
     }
-    
     this.updateStatusBar();
     this.showCurrentQuestion();
   }
@@ -255,19 +244,15 @@ export class QuizGame {
   // ==========================================
   //         TRYB MULTIPLAYER (ONLINE)
   // ==========================================
-  startOnline(serverPlayers, socket, roomId) {
+  startOnline(serverPlayers, socket, roomId, isHost) {
     this.isOnline = true;
+    this.isHost = isHost;
     this.numPlayers = serverPlayers.length;
     this.socket = socket;
     this.currentRoom = roomId;
     this.isPaused = false;
     
-    // Przetwarzamy graczy z serwera na lokalny format
-    this.playersData = serverPlayers.map(p => ({
-      name: p.name,
-      avatar: null,
-      specialization: ''
-    }));
+    this.playersData = serverPlayers.map(p => ({ name: p.name, avatar: null, specialization: '' }));
     this.scores = serverPlayers.map(p => p.score);
 
     this.categoryBox = document.getElementById('category-box');
@@ -277,21 +262,20 @@ export class QuizGame {
     this.statusBar = document.getElementById('player-status-bar');
     this.timerBox = document.getElementById('timer-box');
     this.roundIndicator = document.getElementById('round-indicator');
+    this.pauseOverlay = document.getElementById('pause-overlay');
     
-    const pauseOverlay = document.getElementById('pause-overlay');
-    if (pauseOverlay) pauseOverlay.style.display = 'none';
+    if (this.pauseOverlay) this.pauseOverlay.style.display = 'none';
 
     this.createPlayers();
     this.updateStatusBar();
 
-    // Czyszczenie starych nasłuchów zapobiega bugom przy restarcie gry
     this.socket.off('newQuestion');
     this.socket.off('timerTick');
     this.socket.off('roundResult');
-    this.socket.off('updateScores');
     this.socket.off('gameOver');
+    this.socket.off('gamePaused');
+    this.socket.off('gameResumed');
 
-    // NASŁUCHY Z SERWERA:
     this.socket.on('newQuestion', (data) => {
       this.roundIndicator.textContent = `PYTANIE ${data.qNumber} / ${data.total}`;
       this.categoryBox.textContent = data.question.category.toUpperCase() + " (ONLINE)";
@@ -306,7 +290,6 @@ export class QuizGame {
         btn.textContent = ans;
         btn.addEventListener('click', () => {
           this.socket.emit('submitAnswer', { roomId: this.currentRoom, answerIndex: idx });
-          // Blokujemy WSZYSTKIE przyciski po kliknięciu
           Array.from(this.optionsBox.children).forEach(b => b.disabled = true);
           btn.style.boxShadow = "0 0 15px #ff00ff";
           btn.style.borderColor = "#ff00ff";
@@ -316,31 +299,22 @@ export class QuizGame {
     });
 
     this.socket.on('timerTick', (timeLeft) => {
-      if(this.timerBox) {
-        this.timerBox.textContent = `00:${timeLeft < 10 ? '0'+timeLeft : timeLeft}`;
-      }
+      if(this.timerBox) this.timerBox.textContent = `00:${timeLeft < 10 ? '0'+timeLeft : timeLeft}`;
     });
 
-    // POKAZANIE WYNIKÓW RUNDY
     this.socket.on('roundResult', (data) => {
       this.turnIndicator.textContent = "WYNIKI RUNDY:";
       this.turnIndicator.style.color = "#ffff00";
       if(this.timerBox) this.timerBox.textContent = "Koniec czasu!";
 
       const btns = Array.from(this.optionsBox.children);
-      
-      // Pokazujemy kto co zaznaczył i poprawne odpowiedzi
       btns.forEach((btn, idx) => {
-        // Zaznacz poprawną odpowiedź na zielono
         if (idx === data.correctIndex) {
-          btn.style.background = '#00ff00';
-          btn.style.color = '#000';
-          btn.style.borderColor = '#00ff00';
+          btn.style.background = '#00ff00'; btn.style.color = '#000'; btn.style.borderColor = '#00ff00';
         } else {
-          btn.style.opacity = '0.4'; // Wygaszamy błędne
+          btn.style.opacity = '0.4'; 
         }
 
-        // Szukamy, kto wybrał tę opcję
         const whoPicked = [];
         for (let [socketId, ansIdx] of Object.entries(data.answers)) {
           if (ansIdx === idx) {
@@ -349,24 +323,31 @@ export class QuizGame {
           }
         }
 
-        // Jeśli ktoś to kliknął, dopisz jego imię pod odpowiedzią
         if (whoPicked.length > 0) {
           const badge = document.createElement('div');
-          badge.style.fontSize = '0.9rem';
-          badge.style.marginTop = '10px';
+          badge.style.fontSize = '0.9rem'; badge.style.marginTop = '10px';
           badge.style.color = idx === data.correctIndex ? '#000' : '#ff00ff';
-          badge.style.fontWeight = 'bold';
-          badge.style.textShadow = 'none';
+          badge.style.fontWeight = 'bold'; badge.style.textShadow = 'none';
           badge.textContent = `Wybrali: ${whoPicked.join(', ')}`;
           btn.appendChild(badge);
         }
       });
 
-      // Aktualizacja punktów na pasku
-      data.players.forEach((sp, i) => {
-        if(this.scores.length > i) this.scores[i] = sp.score;
-      });
+      data.players.forEach((sp, i) => { if(this.scores.length > i) this.scores[i] = sp.score; });
       this.updateStatusBar();
+    });
+
+    this.socket.on('gamePaused', () => {
+      this.isPaused = true;
+      if(this.pauseOverlay) {
+        document.getElementById('pause-text').textContent = "HOST ZATRZYMAŁ GRĘ";
+        this.pauseOverlay.style.display = 'flex';
+      }
+    });
+
+    this.socket.on('gameResumed', () => {
+      this.isPaused = false;
+      if(this.pauseOverlay) this.pauseOverlay.style.display = 'none';
     });
 
     this.socket.on('gameOver', (data) => {
@@ -378,23 +359,18 @@ export class QuizGame {
       let winners = data.players.filter(p => p.score === maxScore).map(p => p.name);
       
       this.questionBox.textContent = `Wygrywa: ${winners.join(', ')} z wynikiem ${maxScore} pkt!`;
-      this.optionsBox.innerHTML = '<button class="start-btn" onclick="location.reload()">Wróć do Menu Głównego</button>';
+      this.optionsBox.innerHTML = '<button class="start-btn" onclick="location.reload()">Wróć do Menu</button>';
       this.turnIndicator.textContent = '';
     });
   }
 
-  // ==========================================
-  // WSPÓLNE METODY (Local & Online)
-  // ==========================================
   updateStatusBar() {
     if(!this.statusBar) return;
     this.statusBar.innerHTML = '';
     for(let i = 0; i < this.numPlayers; i++) {
       const div = document.createElement('div');
       div.className = 'player-score';
-      div.style.display = 'flex';
-      div.style.alignItems = 'center';
-      div.style.gap = '10px';
+      div.style.display = 'flex'; div.style.alignItems = 'center'; div.style.gap = '10px';
       
       const pData = this.playersData[i];
       const avatarHtml = pData.avatar ? `<img src="${pData.avatar}" class="avatar-preview-img" style="border-color: #${this.players[i].material.emissive.getHexString()}">` : '';
