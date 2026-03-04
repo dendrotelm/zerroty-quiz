@@ -1,0 +1,141 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { QuizGame } from './game.js';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:3000');
+
+function App() {
+  const mountRef = useRef(null);
+  const gameRef = useRef(null);
+  
+  // Stany Multiplayer
+  const [gameState, setGameState] = useState('login'); // 'login' -> 'lobby' -> 'playing'
+  const [playerName, setPlayerName] = useState('');
+  const [joinRoomId, setJoinRoomId] = useState('');
+  
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [lobbyPlayers, setLobbyPlayers] = useState([]);
+  const [isHost, setIsHost] = useState(false);
+
+  useEffect(() => {
+    // --- NASŁUCHIWANIE ZDARZEŃ Z SERWERA ---
+    socket.on('roomCreated', (data) => {
+      setCurrentRoom(data.roomId);
+      setIsHost(true);
+      setGameState('lobby');
+    });
+
+    socket.on('lobbyUpdate', (players) => {
+      setLobbyPlayers(players);
+      // Jeśli ktoś dołączył, zmieniamy widok na lobby (dla dołączającego)
+      if (gameState !== 'lobby' && gameState !== 'playing') {
+        setGameState('lobby');
+      }
+    });
+
+    socket.on('errorMsg', (msg) => {
+      alert(msg);
+    });
+
+    // Inicjalizacja tła 3D
+    gameRef.current = new QuizGame(mountRef.current);
+    return () => {
+      socket.off('roomCreated');
+      socket.off('lobbyUpdate');
+      socket.off('errorMsg');
+      if (mountRef.current && mountRef.current.firstChild) {
+        mountRef.current.removeChild(mountRef.current.firstChild);
+      }
+    };
+  }, [gameState]);
+
+  const handleCreateRoom = () => {
+    if (!playerName.trim()) return alert("Wpisz swój nick!");
+    socket.emit('createRoom', { playerName });
+  };
+
+  const handleJoinRoom = () => {
+    if (!playerName.trim()) return alert("Wpisz swój nick!");
+    if (!joinRoomId.trim()) return alert("Wpisz kod pokoju!");
+    socket.emit('joinRoom', { roomId: joinRoomId, playerName });
+    setCurrentRoom(joinRoomId.toUpperCase());
+  };
+
+  return (
+    <>
+      {/* Tło 3D */}
+      <div ref={mountRef} style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }} />
+
+      {/* EKRAN LOGOWANIA */}
+      {gameState === 'login' && (
+        <div id="main-menu">
+          <h1>Zerroty: Multiplayer</h1>
+          <div className="menu-section">
+            <h3>Twój nick:</h3>
+            <input 
+              type="text" 
+              className="player-input" 
+              style={{ width: '200px', fontSize: '1.2rem' }}
+              value={playerName} 
+              onChange={e => setPlayerName(e.target.value)} 
+              maxLength={12} 
+            />
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '20px' }}>
+            <div style={{ border: '1px solid #00ffff', padding: '20px' }}>
+              <h3>Nowa Gra</h3>
+              <button className="start-btn" style={{ padding: '10px 20px', fontSize: '1rem' }} onClick={handleCreateRoom}>Stwórz Pokój</button>
+            </div>
+            
+            <div style={{ border: '1px solid #ff00ff', padding: '20px' }}>
+              <h3>Dołącz do gry</h3>
+              <input 
+                type="text" 
+                className="player-input" 
+                placeholder="Kod pokoju" 
+                value={joinRoomId} 
+                onChange={e => setJoinRoomId(e.target.value)} 
+                style={{ width: '100px', marginRight: '10px' }}
+                maxLength={4}
+              />
+              <button className="start-btn" style={{ padding: '10px 20px', fontSize: '1rem', borderColor: '#ff00ff', color: '#ff00ff' }} onClick={handleJoinRoom}>Dołącz</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EKRAN POCZEKALNI (LOBBY) */}
+      {gameState === 'lobby' && (
+        <div id="main-menu" style={{ width: '400px' }}>
+          <h2>POKÓJ: <span style={{ color: '#00ff00', letterSpacing: '3px' }}>{currentRoom}</span></h2>
+          
+          <div className="menu-section" style={{ textAlign: 'left', background: 'rgba(0,0,0,0.5)', padding: '20px', border: '1px dashed #555' }}>
+            <h3 style={{ marginBottom: '15px' }}>Gracze ({lobbyPlayers.length}/4):</h3>
+            {lobbyPlayers.map((p, index) => (
+              <div key={p.id} style={{ fontSize: '1.2rem', margin: '10px 0', color: ['#00ffff', '#00ff00', '#ffff00', '#ff00ff'][index] }}>
+                {index + 1}. {p.name} {p.id === socket.id ? '(Ty)' : ''}
+              </div>
+            ))}
+          </div>
+
+          {isHost ? (
+            <div>
+              <p style={{ fontSize: '0.8rem', color: '#aaa' }}>Jesteś hostem. Ustaw kategorie i odpal grę (wkrótce!).</p>
+              <button className="start-btn">ROZPOCZNIJ GRĘ (Wkrótce)</button>
+            </div>
+          ) : (
+            <p style={{ color: '#ffff00' }}>Oczekiwanie na hosta...</p>
+          )}
+        </div>
+      )}
+
+      {/* Ukryty interfejs gry na później */}
+      <div id="ui-container" style={{ display: gameState === 'playing' ? 'flex' : 'none' }}>
+         <div id="player-status-bar"></div>
+      </div>
+    </>
+  );
+}
+
+export default App; 
