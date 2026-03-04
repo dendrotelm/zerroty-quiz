@@ -3,7 +3,6 @@ import { QuizGame } from './game.js';
 import { io } from 'socket.io-client';
 
 // Na razie łączymy się z lokalnym serwerem. 
-// Jak wrzucisz serwer na Render.com, podmienisz ten link!
 const socket = io('http://localhost:3000');
 
 function App() {
@@ -12,7 +11,7 @@ function App() {
   
   // GŁÓWNE STANY
   const [gameMode, setGameMode] = useState(null); 
-  const [gameState, setGameState] = useState('selectMode'); // selectMode, setupLocal, loginOnline, lobbyOnline, playing
+  const [gameState, setGameState] = useState('selectMode'); // selectMode, setupLocal, loginOnline, lobbyOnline, playing, playingOnline
   
   // STANY DLA HOT-SEAT (Lokalne)
   const [playersCount, setPlayersCount] = useState(2);
@@ -28,19 +27,24 @@ function App() {
   const [lobbyPlayers, setLobbyPlayers] = useState([]);
   const [isHost, setIsHost] = useState(false);
 
+  // Referencja do aktualnego pokoju (dla nasłuchów socket.io)
+  const currentRoomRef = useRef(null);
+  useEffect(() => { currentRoomRef.current = currentRoom; }, [currentRoom]);
+
   useEffect(() => {
     gameRef.current = new QuizGame(mountRef.current);
     
-    // Pobieramy kategorie do Hot-Seat
+    // Pobieramy kategorie
     fetch('/questions.json')
       .then(res => res.json())
       .then(data => {
         const cats = [...new Set(data.map(q => q.category))];
         setAllCategories(cats);
         setSelectedCats(cats);
-      });
+      })
+      .catch(e => console.error("Błąd ładowania pytań", e));
 
-    // Nasłuchy serwera
+    // NASŁUCHY SERWERA ONLINE
     socket.on('roomCreated', (data) => {
       setCurrentRoom(data.roomId);
       setIsHost(true);
@@ -49,7 +53,10 @@ function App() {
 
     socket.on('lobbyUpdate', (players) => {
       setLobbyPlayers(players);
-      setGameState(prevState => (prevState === 'playing' ? 'playing' : 'lobbyOnline'));
+      setGameState(prevState => {
+        if (prevState === 'playingOnline') return 'playingOnline';
+        return 'lobbyOnline';
+      });
     });
 
     socket.on('errorMsg', (msg) => alert(msg));
@@ -58,9 +65,23 @@ function App() {
       socket.off('roomCreated');
       socket.off('lobbyUpdate');
       socket.off('errorMsg');
-      if (mountRef.current && mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
+      if (mountRef.current && mountRef.current.firstChild) {
+        mountRef.current.removeChild(mountRef.current.firstChild);
+      }
     };
   }, []);
+
+  // Osobny useEffect do startu gry online (żeby miał dostęp do najnowszego kodu pokoju)
+  useEffect(() => {
+    const handleGameStarted = (data) => {
+      setGameState('playingOnline');
+      // Odpalamy tryb online w silniku 3D!
+      gameRef.current.startOnline(data.players, socket, currentRoomRef.current);
+    };
+    socket.on('gameStarted', handleGameStarted);
+    return () => socket.off('gameStarted', handleGameStarted);
+  }, []);
+
 
   // --- LOGIKA LOKALNA (HOT-SEAT) ---
   useEffect(() => {
@@ -89,6 +110,7 @@ function App() {
     gameRef.current.quit();
     setGameState('selectMode');
     setGameMode(null);
+    setCurrentRoom(null);
   };
 
   // --- LOGIKA ONLINE ---
@@ -104,10 +126,15 @@ function App() {
     setCurrentRoom(joinRoomId.toUpperCase());
   };
 
+  const startOnlineGame = () => {
+    socket.emit('startGame', { roomId: currentRoom });
+  };
+
   return (
     <>
       <div ref={mountRef} style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }} />
       
+      {/* Ekran Pauzy (Tylko dla trybu lokalnego) */}
       <div id="pause-overlay">
         <span>PAUZA</span>
         <button className="start-btn" style={{ fontSize: '1.2rem', marginTop: '40px', letterSpacing: '2px' }} onClick={quitToMenu}>WRÓĆ DO MENU</button>
@@ -165,7 +192,7 @@ function App() {
           </div>
 
           <div className="menu-section">
-            <h3>Rundy:</h3>
+            <h3>Rundy (Po 10 pytań):</h3>
             {[3, 5, 10].map(num => (
               <button key={num} className={`menu-btn ${roundsCount === num ? 'active' : ''}`} onClick={() => setRoundsCount(num)}>{num}</button>
             ))}
@@ -181,7 +208,7 @@ function App() {
       {/* 2B. LOGIN ONLINE */}
       {gameState === 'loginOnline' && (
         <div id="main-menu">
-          <h2 style={{ color: '#00ff00' }}>TRYB MULTIPLAYER</h2>
+          <h2 style={{ color: '#00ff00', textShadow: '0 0 10px #00ff00' }}>TRYB MULTIPLAYER</h2>
           <div className="menu-section">
             <h3>Twój nick:</h3>
             <input type="text" className="player-input" style={{ width: '200px', fontSize: '1.2rem', borderColor: '#00ff00', color: '#00ff00' }} value={playerName} onChange={e => setPlayerName(e.target.value)} maxLength={12} />
@@ -215,23 +242,23 @@ function App() {
           </div>
           {isHost ? (
             <div>
-              <p style={{ fontSize: '0.8rem', color: '#aaa' }}>Jesteś hostem. Gra online w budowie!</p>
-              <button className="start-btn">ROZPOCZNIJ ONLINE (Wkrótce)</button>
+              <p style={{ fontSize: '0.8rem', color: '#aaa', marginBottom: '10px' }}>Jesteś hostem. Kiedy wszyscy wejdą, kliknij start!</p>
+              <button className="start-btn" onClick={startOnlineGame}>ROZPOCZNIJ ONLINE</button>
             </div>
           ) : (
-            <p style={{ color: '#ffff00' }}>Oczekiwanie na hosta...</p>
+            <p style={{ color: '#ffff00', fontSize: '1.2rem', marginTop: '20px' }}>Oczekiwanie na hosta...</p>
           )}
-          <button className="start-btn" style={{ fontSize: '1rem', padding: '10px', marginTop: '20px' }} onClick={() => { setGameState('selectMode'); }}>Wyjdź z pokoju</button>
+          <button className="start-btn" style={{ fontSize: '1rem', padding: '10px', marginTop: '30px', borderColor: '#555', color: '#aaa' }} onClick={() => { setGameState('selectMode'); }}>Wyjdź z pokoju</button>
         </div>
       )}
 
-      {/* UI GRY (Używane przez Hot-Seat) */}
-      <div id="ui-container" style={{ display: gameState === 'playing' ? 'flex' : 'none' }}>
+      {/* UI GRY (Używane przez Local i Online) */}
+      <div id="ui-container" style={{ display: (gameState === 'playing' || gameState === 'playingOnline') ? 'flex' : 'none' }}>
         <div id="player-status-bar"></div>
         <div id="quiz-area">
           <div id="category-box">ŁADOWANIE...</div>
           <div id="timer-box">30</div>
-          <div id="question-box">Podłączanie...</div>
+          <div id="question-box">Podłączanie do serwera...</div>
           <div id="options-box"></div>
           <div id="turn-indicator"></div>
           <div id="round-indicator"></div>
