@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { QuizGame } from './game.js';
 import { io } from 'socket.io-client';
 
-const socket = io('https://zerroty-server.onrender.com'); 
+const socket = io('https://zerroty-server.onrender.com'); // Twój serwer na Render
 
 function App() {
   const mountRef = useRef(null);
@@ -33,7 +33,7 @@ function App() {
   useEffect(() => {
     gameRef.current = new QuizGame(mountRef.current);
     
-    fetch('/questions.json').then(res => res.json()).then(data => {
+    fetch('./questions.json').then(res => res.json()).then(data => {
         const cats = [...new Set(data.map(q => q.category))];
         setAllCategories(cats);
         setSelectedCats(cats);
@@ -87,7 +87,6 @@ function App() {
     gameRef.current.start(playersData, roundsCount, selectedCats);
   };
 
-  // Zunifikowane wyjście do Menu Głównego
   const quitToMenu = () => {
     if (gameMode === 'online' && currentRoom) {
       socket.emit('leaveRoom', { roomId: currentRoom });
@@ -121,14 +120,34 @@ function App() {
     <>
       <div ref={mountRef} style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }} />
       
+      {/* EKRAN PAUZY (Nakładka na całą grę) */}
       <div id="pause-overlay">
         <span id="pause-text">PAUZA</span>
-        <button className="start-btn" style={{ fontSize: '1.2rem', marginTop: '40px', letterSpacing: '2px' }} onClick={quitToMenu}>ZAKOŃCZ I WRÓĆ DO MENU</button>
+        
+        {/* Przycisk Wznawiania (Tylko Host lub Lokalnie) */}
+        {(gameMode === 'local' || (gameMode === 'online' && isHost)) && (
+          <button 
+            className="start-btn" 
+            style={{ fontSize: '1.5rem', marginTop: '40px', borderColor: '#00ff00', color: '#00ff00', textShadow: '0 0 10px #00ff00' }} 
+            onClick={() => {
+              if (gameMode === 'online') socket.emit('togglePause', { roomId: currentRoom });
+              else gameRef.current.togglePause();
+            }}
+          >
+            ▶ WZNÓW GRĘ
+          </button>
+        )}
+
+        <button className="start-btn" style={{ fontSize: '1.2rem', marginTop: '20px', letterSpacing: '2px' }} onClick={quitToMenu}>
+          ZAKOŃCZ I WRÓĆ DO MENU
+        </button>
       </div>
 
+      {/* ================= MENU GŁÓWNE ================= */}
+      
       {gameState === 'selectMode' && (
-        <div id="main-menu">
-          <h1>Zerroty: Wielki Quiz Y2K</h1>
+        <div id="main-menu" style={{ width: '800px', maxWidth: '95vw' }}>
+          <h1>QuizPOL: Quiz o latach zerowych</h1>
           <h3 style={{ marginBottom: '30px', color: '#00ffff' }}>Wybierz tryb gry:</h3>
           <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
             <button className="start-btn" onClick={() => { setGameMode('local'); setGameState('setupLocal'); }}>HOT-SEAT (Lokalnie)</button>
@@ -138,7 +157,7 @@ function App() {
       )}
 
       {gameState === 'setupLocal' && (
-         <div id="main-menu" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+         <div id="main-menu" style={{ width: '800px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
           <h2 style={{ color: '#00ffff' }}>TRYB HOT-SEAT</h2>
           <div className="menu-section">
             <h3>Kategorie:</h3>
@@ -175,29 +194,33 @@ function App() {
       )}
 
       {gameState === 'loginOnline' && (
-        <div id="main-menu">
+        <div id="main-menu" style={{ width: '800px', maxWidth: '95vw' }}>
           <h2 style={{ color: '#00ff00', textShadow: '0 0 10px #00ff00' }}>TRYB MULTIPLAYER</h2>
           <div className="menu-section">
             <h3>Twój nick:</h3>
-            <input type="text" className="player-input" style={{ width: '200px', fontSize: '1.2rem', borderColor: '#00ff00', color: '#00ff00' }} value={playerName} onChange={e => setPlayerName(e.target.value)} maxLength={12} />
+            <input type="text" className="player-input" style={{ width: '250px', fontSize: '1.2rem', borderColor: '#00ff00', color: '#00ff00', textAlign: 'center' }} value={playerName} onChange={e => setPlayerName(e.target.value)} maxLength={12} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '20px' }}>
-            <div style={{ border: '1px solid #00ffff', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', marginTop: '20px' }}>
+            <div style={{ border: '1px solid #00ffff', padding: '20px', width: '300px' }}>
               <h3>Nowa Gra</h3>
-              <button className="start-btn" style={{ padding: '10px 20px', fontSize: '1rem' }} onClick={handleCreateRoom}>Stwórz Pokój</button>
+              <p style={{fontSize: '0.8rem', color: '#aaa', marginBottom: '15px'}}>Będziesz Hostem. Wybierzesz kategorie i ilość pytań.</p>
+              <button className="start-btn" style={{ padding: '10px 20px', fontSize: '1rem', width: '100%' }} onClick={handleCreateRoom}>Stwórz Pokój</button>
             </div>
-            <div style={{ border: '1px solid #ff00ff', padding: '20px' }}>
+            <div style={{ border: '1px solid #ff00ff', padding: '20px', width: '300px' }}>
               <h3>Dołącz do gry</h3>
-              <input type="text" className="player-input" placeholder="Kod" value={joinRoomId} onChange={e => setJoinRoomId(e.target.value)} style={{ width: '100px', marginRight: '10px' }} maxLength={4} />
-              <button className="start-btn" style={{ padding: '10px 20px', fontSize: '1rem', borderColor: '#ff00ff', color: '#ff00ff' }} onClick={handleJoinRoom}>Dołącz</button>
+              <p style={{fontSize: '0.8rem', color: '#aaa', marginBottom: '15px'}}>Podaj kod, który podyktuje Ci Host.</p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input type="text" className="player-input" placeholder="KOD" value={joinRoomId} onChange={e => setJoinRoomId(e.target.value)} style={{ width: '100px', textAlign: 'center', fontSize: '1.2rem', textTransform: 'uppercase' }} maxLength={4} />
+                <button className="start-btn" style={{ padding: '10px', fontSize: '1rem', borderColor: '#ff00ff', color: '#ff00ff', flexGrow: 1 }} onClick={handleJoinRoom}>Dołącz</button>
+              </div>
             </div>
           </div>
-          <button className="start-btn" style={{ fontSize: '1rem', padding: '10px', marginTop: '20px' }} onClick={() => setGameState('selectMode')}>Wróć</button>
+          <button className="start-btn" style={{ fontSize: '1rem', padding: '10px', marginTop: '30px' }} onClick={() => setGameState('selectMode')}>Wróć do Menu</button>
         </div>
       )}
 
       {gameState === 'lobbyOnline' && (
-        <div id="main-menu" style={{ width: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div id="main-menu" style={{ width: '800px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
           <h2>POKÓJ: <span style={{ color: '#00ff00', letterSpacing: '3px' }}>{currentRoom}</span></h2>
           <div className="menu-section" style={{ textAlign: 'left', background: 'rgba(0,0,0,0.5)', padding: '20px', border: '1px dashed #555' }}>
             <h3 style={{ marginBottom: '15px' }}>Gracze ({lobbyPlayers.length}/4):</h3>
@@ -218,7 +241,7 @@ function App() {
               </div>
 
               <div style={{ marginBottom: '20px' }}>
-                <span style={{ marginRight: '10px', fontSize: '1.1rem' }}>Ilość pytań:</span>
+                <span style={{ marginRight: '10px', fontSize: '1.1rem' }}>Ilość pytań w rundzie:</span>
                 <select value={roundsCount} onChange={e => setRoundsCount(Number(e.target.value))} className="spec-select" style={{ fontSize: '1.1rem', padding: '5px' }}>
                   <option value={5}>5 pytań</option>
                   <option value={10}>10 pytań</option>
@@ -237,7 +260,30 @@ function App() {
         </div>
       )}
 
+      {/* ================= INTERFEJS W TRAKCIE GRY ================= */}
       <div id="ui-container" style={{ display: (gameState === 'playing' || gameState === 'playingOnline') ? 'flex' : 'none' }}>
+        
+        {/* PRZYCISK PAUZY DLA HOSTA W PRAWYM GÓRNYM ROGU */}
+        {(gameMode === 'local' || (gameMode === 'online' && isHost)) && (
+          <button
+            style={{
+              position: 'absolute', top: '15px', right: '20px', background: '#000', 
+              border: '2px solid #ff00ff', color: '#ff00ff', padding: '10px 20px', 
+              cursor: 'pointer', fontWeight: 'bold', fontSize: '1.2rem', zIndex: 50, 
+              fontFamily: 'inherit', textShadow: '0 0 8px #ff00ff', transition: '0.2s',
+              pointerEvents: 'auto'
+            }}
+            onMouseOver={(e) => { e.target.style.background = '#ff00ff'; e.target.style.color = '#000'; }}
+            onMouseOut={(e) => { e.target.style.background = '#000'; e.target.style.color = '#ff00ff'; }}
+            onClick={() => {
+              if (gameMode === 'online') socket.emit('togglePause', { roomId: currentRoom });
+              else gameRef.current.togglePause();
+            }}
+          >
+            ⏸ PAUZA
+          </button>
+        )}
+
         <div id="player-status-bar"></div>
         <div id="quiz-area">
           <div id="category-box">ŁADOWANIE...</div>

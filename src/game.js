@@ -161,7 +161,7 @@ export class QuizGame {
 
   async loadQuestions() {
     try {
-      const response = await fetch('/questions.json');
+      const response = await fetch('./questions.json');
       const data = await response.json();
       let filteredData = data.filter(q => this.selectedCats.includes(q.category));
       this.questions = filteredData.sort(() => Math.random() - 0.5);
