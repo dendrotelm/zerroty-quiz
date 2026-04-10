@@ -8,24 +8,25 @@ function App() {
   const mountRef = useRef(null);
   const gameRef = useRef(null);
   
-  // Audio Ref do muzyki
+  // Audio Control
   const bgMusicRef = useRef(null);
   const [musicStarted, setMusicStarted] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
+  // UI State
   const [gameMode, setGameMode] = useState(null); 
   const [gameState, setGameState] = useState('selectMode'); 
+  const [showCredits, setShowCredits] = useState(false);
   
+  // Game Config
   const [playersCount, setPlayersCount] = useState(2);
-  
-  // Rundy i pytania
   const [roundsCount, setRoundsCount] = useState(3); 
   const [questionsPerRound, setQuestionsPerRound] = useState(10);
-
   const [playersData, setPlayersData] = useState([{name: 'Gracz 1', avatar: null, specialization: ''}, {name: 'Gracz 2', avatar: null, specialization: ''}]);
   const [allCategories, setAllCategories] = useState([]);
   const [selectedCats, setSelectedCats] = useState([]);
 
-  // Online
+  // Online Config
   const [playerName, setPlayerName] = useState('');
   const [joinRoomId, setJoinRoomId] = useState('');
   const [currentRoom, setCurrentRoom] = useState(null);
@@ -39,11 +40,22 @@ function App() {
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
 
   useEffect(() => {
-    // Inicjalizacja muzyki w tle
+    // 1. Setup Audio
     bgMusicRef.current = new Audio('/music.mp3');
     bgMusicRef.current.loop = true;
-    bgMusicRef.current.volume = 0.3; // Sciszona, by nie zagłuszała efektów
+    bgMusicRef.current.volume = 0.3;
 
+    // Obejście blokady autoplay - odpalamy po pierwszym kliknięciu gdziekolwiek w dokumencie
+    const handleFirstInteraction = () => {
+      if (!musicStarted && bgMusicRef.current) {
+        bgMusicRef.current.play().catch(e => console.log("Zablokowano autoplay", e));
+        setMusicStarted(true);
+      }
+      document.removeEventListener('click', handleFirstInteraction);
+    };
+    document.addEventListener('click', handleFirstInteraction);
+
+    // 2. Setup Game Engine
     gameRef.current = new QuizGame(mountRef.current);
     
     fetch('/questions.json').then(res => res.json()).then(data => {
@@ -52,6 +64,7 @@ function App() {
         setSelectedCats(cats);
     });
 
+    // 3. Setup Sockets
     socket.on('roomCreated', (data) => {
       setCurrentRoom(data.roomId);
       setIsHost(true);
@@ -67,6 +80,7 @@ function App() {
 
     return () => {
       socket.off('roomCreated'); socket.off('lobbyUpdate'); socket.off('errorMsg');
+      document.removeEventListener('click', handleFirstInteraction);
       if (mountRef.current && mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
       if (bgMusicRef.current) bgMusicRef.current.pause();
     };
@@ -89,11 +103,26 @@ function App() {
     });
   }, [playersCount]);
 
-  // Uruchamiamy muzykę przy pierwszym kliknięciu w menu
-  const triggerMusic = () => {
-    if (!musicStarted && bgMusicRef.current) {
-      bgMusicRef.current.play().catch(e => console.log("Zablokowano autoodtwarzanie audio", e));
-      setMusicStarted(true);
+  // Przełącznik wyciszenia (Mute Toggle)
+  const toggleMute = () => {
+    if (bgMusicRef.current) {
+      bgMusicRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  // Obsługa przycisku pauzy w React (Zamiast w Vanilla JS)
+  const handlePauseClick = () => {
+    if (!gameRef.current) return;
+    
+    if (gameMode === 'local') {
+      gameRef.current.togglePause();
+    } else if (gameMode === 'online') {
+      if (isHostRef.current) {
+        socket.emit('togglePause', { roomId: currentRoomRef.current });
+      } else {
+        alert("Tylko HOST pokoju może zapauzować grę!");
+      }
     }
   };
 
@@ -142,26 +171,45 @@ function App() {
     <>
       <div ref={mountRef} style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }} />
       
+      {/* GLOBALNY PRZYCISK GŁOŚNOŚCI */}
+      <button className="volume-btn" onClick={toggleMute} title="Wycisz muzykę">
+        {isMuted ? '🔇' : '🔊'}
+      </button>
+
       <div id="pause-overlay">
         <span id="pause-text">PAUZA</span>
         <button className="start-btn" style={{ fontSize: '1.2rem', marginTop: '40px', letterSpacing: '2px' }} onClick={quitToMenu}>ZAKOŃCZ I WRÓĆ DO MENU</button>
       </div>
+
+      {showCredits && (
+        <div className="credits-overlay" onClick={() => setShowCredits(false)}>
+          <div className="credits-modal" onClick={e => e.stopPropagation()}>
+            <h2 style={{color: '#00ffff'}}>Audio Credits</h2>
+            <p>Music & Sound Effects from <a href="https://pixabay.com/" target="_blank" rel="noreferrer">Pixabay</a>:</p>
+            <p>
+              Audio by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=6033" target="_blank" rel="noreferrer">freesound_community</a>
+            </p>
+            <p>
+              Audio by <a href="https://pixabay.com/users/tuomas_data-40753689/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=199825" target="_blank" rel="noreferrer">Tuomas_Data</a>
+            </p>
+            <p>
+              Audio by <a href="https://pixabay.com/users/sergequadrado-24990007/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=251872" target="_blank" rel="noreferrer">Sergei Chetvertnykh</a>
+            </p>
+            <button className="start-btn" style={{padding: '10px 20px', fontSize: '1rem', marginTop: '20px'}} onClick={() => setShowCredits(false)}>Zamknij</button>
+          </div>
+        </div>
+      )}
 
       {gameState === 'selectMode' && (
         <div id="main-menu">
           <h1>Zerroty: Wielki Quiz Y2K</h1>
           <h3 style={{ marginBottom: '30px', color: '#00ffff' }}>Wybierz tryb gry:</h3>
           <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
-            <button className="start-btn" onClick={() => { triggerMusic(); setGameMode('local'); setGameState('setupLocal'); }}>HOT-SEAT (Lokalnie)</button>
-            <button className="start-btn" style={{ borderColor: '#00ff00', color: '#00ff00', textShadow: '0 0 10px #00ff00' }} onClick={() => { triggerMusic(); setGameMode('online'); setGameState('loginOnline'); }}>MULTIPLAYER (Online)</button>
+            <button className="start-btn" onClick={() => { setGameMode('local'); setGameState('setupLocal'); }}>HOT-SEAT (Lokalnie)</button>
+            <button className="start-btn" style={{ borderColor: '#00ff00', color: '#00ff00', textShadow: '0 0 10px #00ff00' }} onClick={() => { setGameMode('online'); setGameState('loginOnline'); }}>MULTIPLAYER (Online)</button>
           </div>
           
-          <div className="credits-footer">
-            <p>Music & Sound Effects from <a href="https://pixabay.com/" target="_blank" rel="noreferrer">Pixabay</a>:</p>
-            <p>
-              Audio by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=6033" target="_blank" rel="noreferrer">freesound_community</a>, <a href="https://pixabay.com/users/tuomas_data-40753689/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=199825" target="_blank" rel="noreferrer">Tuomas_Data</a>, & <a href="https://pixabay.com/users/sergequadrado-24990007/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=251872" target="_blank" rel="noreferrer">Sergei Chetvertnykh</a>
-            </p>
-          </div>
+          <button className="credits-btn-small" onClick={() => setShowCredits(true)}>Pokaż zasoby & Credits</button>
         </div>
       )}
 
@@ -283,7 +331,8 @@ function App() {
 
       <div id="ui-container" style={{ display: (gameState === 'playing' || gameState === 'playingOnline') ? 'flex' : 'none' }}>
         
-        <button id="pause-btn">⏸ PAUZA</button>
+        {/* NOWY PRZYCISK PAUZY OBSŁUGIWANY PRZEZ REACT */}
+        <button id="pause-btn" onClick={handlePauseClick}>⏸ PAUZA [M]</button>
 
         <div id="player-status-bar"></div>
         <div id="quiz-area">

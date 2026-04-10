@@ -21,7 +21,6 @@ export class QuizGame {
     this.isHost = false;
     this.timeLeft = 30;
 
-    // Inicjalizacja dźwięków
     this.soundCorrect = new Audio('/correct.mp3');
     this.soundWrong = new Audio('/wrong.mp3');
     this.soundCorrect.volume = 0.8;
@@ -135,23 +134,6 @@ export class QuizGame {
     }
   }
 
-  bindPauseButton() {
-    const pauseBtn = document.getElementById('pause-btn');
-    if(pauseBtn) {
-      pauseBtn.onclick = () => {
-        if (!this.isOnline) {
-          this.togglePause();
-        } else {
-          if (this.isHost) {
-            this.socket.emit('togglePause', { roomId: this.currentRoom });
-          } else {
-            alert("Tylko HOST pokoju może zapauzować grę!");
-          }
-        }
-      };
-    }
-  }
-
   playSound(type) {
     if (type === 'correct') {
       this.soundCorrect.currentTime = 0;
@@ -189,7 +171,6 @@ export class QuizGame {
     this.roundIndicator = document.getElementById('round-indicator');
     this.pauseOverlay = document.getElementById('pause-overlay');
 
-    this.bindPauseButton();
     this.createPlayers();
     await this.loadQuestions();
   }
@@ -343,7 +324,6 @@ export class QuizGame {
     
     if (this.pauseOverlay) this.pauseOverlay.style.display = 'none';
 
-    this.bindPauseButton();
     this.createPlayers();
     this.updateStatusBar();
 

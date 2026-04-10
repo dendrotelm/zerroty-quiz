@@ -5,7 +5,7 @@ body, html {
     padding: 0; 
     width: 100vw; 
     height: 100vh; 
-    overflow: hidden; /* Utrzymujemy brak głównego scrolla, żeby tło z Three.js nie skakało */
+    overflow: hidden; 
     background-color: #000; 
     font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif; 
     color: #fff;
@@ -13,6 +13,33 @@ body, html {
 
 canvas { 
     display: block; 
+}
+
+/* --- KONTROLKI GLOBALNE (GŁOŚNOŚĆ) --- */
+.volume-btn {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #00ffff;
+    color: #00ffff;
+    font-size: 1.5rem;
+    padding: 10px;
+    cursor: pointer;
+    z-index: 50;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 10px #00ffff;
+    transition: 0.2s;
+}
+
+.volume-btn:hover {
+    background: #00ffff;
+    color: #000;
 }
 
 /* GŁÓWNY KONTENER UI PODCZAS GRY */
@@ -32,15 +59,17 @@ canvas {
 /* PASEK GRACZY NA GÓRZE */
 #player-status-bar {
     display: flex; 
-    flex-wrap: wrap; /* Pozwala zawijać graczy na małych ekranach */
+    flex-wrap: wrap; 
     justify-content: space-around; 
     gap: 10px;
     padding: 10px; 
     background: rgba(0, 0, 0, 0.8);
     border-bottom: 3px solid #ff00ff; 
     pointer-events: auto;
-    max-height: 30vh; /* Zapobiega zajęciu całego ekranu przez graczy */
-    overflow-y: auto; /* Pozwala przewijać sam pasek, jeśli graczy jest dużo na tel. */
+    max-height: 30vh; 
+    overflow-y: auto; 
+    /* Marginesy na górze, aby zrobić miejsce na przycisk Głośności i Pauzy na małych ekranach */
+    padding-top: 60px;
 }
 
 .player-score {
@@ -48,7 +77,7 @@ canvas {
     border: 2px solid; 
     background: rgba(0,0,0,0.5);
     font-weight: bold; 
-    font-size: 1rem; /* Trochę mniejsza czcionka dla lepszego dopasowania na tel */
+    font-size: 1rem; 
     text-transform: uppercase;
     display: flex;
     align-items: center;
@@ -64,8 +93,8 @@ canvas {
     border-top: 3px solid #ff00ff; 
     padding: 20px 15px; 
     pointer-events: auto;
-    max-height: 65vh; /* Ograniczenie wysokości, żeby nie uciekło z ekranu */
-    overflow-y: auto; /* Scrollowanie samego obszaru pytań w razie potrzeby */
+    max-height: 65vh; 
+    overflow-y: auto; 
     width: 100%;
 }
 
@@ -80,24 +109,26 @@ canvas {
     max-width: 800px; 
 }
 
-/* Na małych ekranach zmień siatkę odpowiedzi na 1 kolumnę */
 @media (max-width: 600px) {
     #options-box { grid-template-columns: 1fr; }
     #question-box { font-size: 1.2rem; }
     #timer-box { font-size: 2rem !important; margin-bottom: 10px !important;}
+    
+    .volume-btn { top: 5px; left: 5px; width: 40px; height: 40px; font-size: 1.2rem; }
+    #pause-btn { top: 5px !important; right: 5px !important; font-size: 0.9rem !important; padding: 8px !important; }
 }
 
 button.quiz-option {
     background: #000; border: 3px solid #00ffff; color: #00ffff; padding: 15px;
     font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.2s;
     text-shadow: 0 0 8px #00ffff; font-family: inherit;
-    word-wrap: break-word; /* Zabezpieczenie dla bardzo długich słów */
+    word-wrap: break-word; 
 }
 button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20px #00ffff; }
 
 #turn-indicator { margin-top: 15px; font-size: 1.2rem; font-weight: bold; text-align: center; }
 
-/* --- MENU GŁÓWNE (POPRAWIONE DLA TELEFONÓW) --- */
+/* --- MENU GŁÓWNE --- */
 #main-menu {
     position: absolute; 
     top: 50%; 
@@ -110,13 +141,11 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
     z-index: 20; 
     box-shadow: 0 0 30px #00ffff; 
     pointer-events: auto;
-    
-    /* Zabezpieczenie wysokości i szerokości */
     width: 95vw; 
     max-width: 700px; 
-    max-height: 90vh; /* Menu nigdy nie zajmie więcej niż 90% ekranu */
-    overflow-y: auto; /* Scroll wewnątrz menu, jeśli opcji jest za dużo */
-    border-radius: 10px; /* Lekkie zaokrąglenie dla estetyki na tel */
+    max-height: 90vh; 
+    overflow-y: auto; 
+    border-radius: 10px; 
 }
 
 #main-menu h1 { color: #ff00ff; text-shadow: 0 0 10px #ff00ff; margin-bottom: 20px; font-size: 1.8rem; }
@@ -134,8 +163,8 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
     margin-top: 15px; background: #000; border: 3px solid #ff00ff; color: #ff00ff;
     padding: 12px 25px; font-size: 1.2rem; font-weight: bold; cursor: pointer;
     text-shadow: 0 0 10px #ff00ff; font-family: inherit; transition: 0.2s;
-    width: 100%; /* Przyciski startu na pełną szerokość kontenera na tel */
-    max-width: 300px; /* Ale nie za szerokie na PC */
+    width: 100%; 
+    max-width: 300px; 
     display: inline-block;
 }
 .start-btn:hover { background: #ff00ff; color: #000; box-shadow: 0 0 20px #ff00ff; }
@@ -143,7 +172,7 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
 #timer-box { color: #ff0000; font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 10px #ff0000; margin-bottom: 15px; }
 #round-indicator { margin-top: 10px; font-size: 1rem; color: #ff00ff; font-weight: bold; text-shadow: 0 0 5px #ff00ff; text-align: center; }
 
-/* --- WŁASNE IMIONA, AWATARY I PAUZA --- */
+/* --- WŁASNE IMIONA, AWATARY --- */
 .player-setup { 
     display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; align-items: center; justify-content: center; 
     background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;
@@ -162,6 +191,7 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
     width: 35px; height: 35px; object-fit: cover; border-radius: 50%; border: 2px solid; flex-shrink: 0;
 }
 
+/* --- EKRAN PAUZY I PRZYCISK --- */
 #pause-overlay {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.85); display: none; flex-direction: column;
@@ -169,7 +199,32 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
     color: #ff00ff; font-size: 3rem; font-weight: bold; text-shadow: 0 0 30px #ff00ff, 0 0 10px #00ffff; letter-spacing: 5px; text-align: center; padding: 20px;
 }
 
-/* --- KATEGORIE I SPECJALIZACJE --- */
+#pause-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #ff00ff;
+    color: #ff00ff;
+    padding: 10px 20px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 50; /* Musi być powyżej innych elementów UI */
+    pointer-events: auto; /* Kluczowe! */
+    box-shadow: 0 0 10px #ff00ff;
+    transition: 0.2s;
+    border-radius: 5px;
+    font-family: inherit;
+    text-shadow: 0 0 5px #ff00ff;
+}
+
+#pause-btn:hover {
+    background: #ff00ff;
+    color: #000;
+}
+
+/* --- KATEGORIE --- */
 .category-select-box { 
     display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; justify-content: center; max-width: 100%; 
 }
@@ -182,3 +237,44 @@ button.quiz-option:hover { background: #00ffff; color: #000; box-shadow: 0 0 20p
 }
 .player-score span { display: flex; flex-direction: column; align-items: flex-start; }
 .bonus-info { font-size: 0.7rem; color: #ffff00; text-transform: none; margin-top: 4px; }
+
+/* --- CREDITS MODAL (NOWE) --- */
+.credits-btn-small {
+    margin-top: 20px;
+    background: none;
+    border: none;
+    color: #888;
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: 0.2s;
+}
+
+.credits-btn-small:hover {
+    color: #00ffff;
+}
+
+.credits-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.credits-modal {
+    background: #111;
+    border: 2px solid #00ffff;
+    padding: 30px;
+    border-radius: 10px;
+    text-align: center;
+    max-width: 500px;
+    box-shadow: 0 0 20px #00ffff;
+}
+
+.credits-modal p { margin-bottom: 10px; line-height: 1.5; color: #ddd;}
+.credits-modal a { color: #ff00ff; text-decoration: none; font-weight: bold;}
+.credits-modal a:hover { text-decoration: underline; color: #fff;}
