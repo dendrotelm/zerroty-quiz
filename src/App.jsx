@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { QuizGame } from './game.js';
 import { io } from 'socket.io-client';
 
-const socket = io('https://zerroty-server.onrender.com'); 
+const socket = io('https://zerroty-server.onrender.com'); // Zmień na swój link serwera w razie potrzeby
 
 function App() {
   const mountRef = useRef(null);
@@ -252,4 +252,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;
