@@ -20,6 +20,12 @@ export class QuizGame {
     this.isOnline = false;
     this.isHost = false;
     this.timeLeft = 30;
+
+    // Inicjalizacja dźwięków
+    this.soundCorrect = new Audio('/correct.mp3');
+    this.soundWrong = new Audio('/wrong.mp3');
+    this.soundCorrect.volume = 0.8;
+    this.soundWrong.volume = 0.8;
     
     this.init();
     
@@ -64,7 +70,6 @@ export class QuizGame {
       this.socket.off('newQuestion');
       this.socket.off('timerTick');
       this.socket.off('roundResult');
-      this.socket.off('updateScores');
       this.socket.off('gameOver');
       this.socket.off('gamePaused');
       this.socket.off('gameResumed');
@@ -130,15 +135,44 @@ export class QuizGame {
     }
   }
 
+  bindPauseButton() {
+    const pauseBtn = document.getElementById('pause-btn');
+    if(pauseBtn) {
+      pauseBtn.onclick = () => {
+        if (!this.isOnline) {
+          this.togglePause();
+        } else {
+          if (this.isHost) {
+            this.socket.emit('togglePause', { roomId: this.currentRoom });
+          } else {
+            alert("Tylko HOST pokoju może zapauzować grę!");
+          }
+        }
+      };
+    }
+  }
+
+  playSound(type) {
+    if (type === 'correct') {
+      this.soundCorrect.currentTime = 0;
+      this.soundCorrect.play().catch(e => console.log("Audio blocked", e));
+    } else {
+      this.soundWrong.currentTime = 0;
+      this.soundWrong.play().catch(e => console.log("Audio blocked", e));
+    }
+  }
+
   // ==========================================
   //         TRYB LOKALNY (HOT-SEAT)
   // ==========================================
-  async start(playersData, numRounds, selectedCats) {
+  async start(playersData, numRounds, questionsPerRound, selectedCats) {
     this.isOnline = false;
     this.playersData = playersData;
     this.numPlayers = playersData.length;
     this.numRounds = numRounds;
+    this.questionsPerRound = questionsPerRound;
     this.selectedCats = selectedCats;
+    
     this.currentRound = 1;
     this.questionsInCurrentRound = 0;
     this.scores = new Array(this.numPlayers).fill(0);
@@ -155,6 +189,7 @@ export class QuizGame {
     this.roundIndicator = document.getElementById('round-indicator');
     this.pauseOverlay = document.getElementById('pause-overlay');
 
+    this.bindPauseButton();
     this.createPlayers();
     await this.loadQuestions();
   }
@@ -187,7 +222,7 @@ export class QuizGame {
     const playerColor = `#${this.players[this.currentPlayer].material.emissive.getHexString()}`;
     const isSpecialization = pData.specialization === q.category;
 
-    this.roundIndicator.textContent = `RUNDA ${this.currentRound}/${this.numRounds} | PYTANIE ${this.questionsInCurrentRound + 1}/10`;
+    this.roundIndicator.textContent = `RUNDA ${this.currentRound} / ${this.numRounds} | PYTANIE ${this.questionsInCurrentRound + 1} / ${this.questionsPerRound}`;
     this.categoryBox.textContent = q.category.toUpperCase() + (isSpecialization ? " (⭐ TWOJA SPECJALIZACJA!)" : "");
     this.questionBox.textContent = q.question;
     this.turnIndicator.textContent = `TURA: ${pData.name.toUpperCase()}`;
@@ -221,7 +256,6 @@ export class QuizGame {
     clearInterval(this.timerInterval);
     if(this.timerBox) this.timerBox.textContent = "Koniec!";
 
-    // 1. Zablokowanie przycisków, aby gracz nie klikał kilka razy
     const btns = Array.from(this.optionsBox.children);
     btns.forEach(b => b.disabled = true);
 
@@ -230,8 +264,8 @@ export class QuizGame {
     
     let pointsEarned = 0;
 
-    // 2. Logika przyznawania/zabierania punktów
     if (selectedIndex === q.correct) {
+      this.playSound('correct');
       pointsEarned = isSpec ? 2 : 1;
       this.scores[this.currentPlayer] += pointsEarned;
       
@@ -239,8 +273,9 @@ export class QuizGame {
       this.turnIndicator.style.color = "#00ff00"; 
       this.turnIndicator.style.textShadow = "0 0 10px #00ff00";
     } else {
+      this.playSound('wrong');
       if (isSpec) {
-        pointsEarned = -1; // Kara za błąd w swojej specjalizacji
+        pointsEarned = -1;
         this.scores[this.currentPlayer] += pointsEarned;
       }
       
@@ -253,7 +288,6 @@ export class QuizGame {
       this.turnIndicator.style.textShadow = "0 0 10px #ff0000";
     }
 
-    // 3. Kolorowanie przycisków (Sprzężenie zwrotne dla UX)
     btns.forEach((btn, idx) => {
       if (idx === q.correct) {
         btn.style.background = '#00ff00'; 
@@ -264,19 +298,18 @@ export class QuizGame {
         btn.style.color = '#fff'; 
         btn.style.borderColor = '#ff0000';
       } else {
-        btn.style.opacity = '0.4'; // Wygaszenie nieklikniętych błędnych odpowiedzi
+        btn.style.opacity = '0.4'; 
       }
     });
 
-    this.updateStatusBar(); // Aktualizujemy pasek natychmiast, by gracz widział zmianę wyniku
+    this.updateStatusBar(); 
 
-    // 4. Odczekanie 3 sekund przed załadowaniem następnej tury
     setTimeout(() => {
       this.currentPlayer = (this.currentPlayer + 1) % this.numPlayers;
       this.currentQuestionIndex++;
       this.questionsInCurrentRound++;
 
-      if (this.questionsInCurrentRound >= 10) {
+      if (this.questionsInCurrentRound >= this.questionsPerRound) {
         this.currentRound++;
         this.questionsInCurrentRound = 0;
       }
@@ -310,6 +343,7 @@ export class QuizGame {
     
     if (this.pauseOverlay) this.pauseOverlay.style.display = 'none';
 
+    this.bindPauseButton();
     this.createPlayers();
     this.updateStatusBar();
 
@@ -321,7 +355,7 @@ export class QuizGame {
     this.socket.off('gameResumed');
 
     this.socket.on('newQuestion', (data) => {
-      this.roundIndicator.textContent = `PYTANIE ${data.qNumber} / ${data.total}`;
+      this.roundIndicator.textContent = `RUNDA ${data.roundNumber} / ${data.totalRounds} | PYTANIE ${data.qInRound} / ${data.questionsPerRound}`;
       this.categoryBox.textContent = data.question.category.toUpperCase() + " (ONLINE)";
       this.questionBox.textContent = data.question.question;
       this.turnIndicator.textContent = "SZYBKO, WYBIERZ ODPOWIEDŹ!";
@@ -338,9 +372,8 @@ export class QuizGame {
           btn.style.boxShadow = "0 0 15px #ff00ff";
           btn.style.borderColor = "#ff00ff";
           
-          // --- INFORMACJA O OCZEKIWANIU ---
           this.turnIndicator.textContent = "ODPOWIEDŹ ZAPISANA! CZEKAMY NA INNYCH...";
-          this.turnIndicator.style.color = "#00ffff"; // Retro Cyjan
+          this.turnIndicator.style.color = "#00ffff"; 
           this.turnIndicator.style.textShadow = "0 0 8px #00ffff";
         });
         this.optionsBox.appendChild(btn);
@@ -352,21 +385,22 @@ export class QuizGame {
     });
 
     this.socket.on('roundResult', (data) => {
-      // --- LOGIKA FEEDBACK LOOP DLA GRACZA ---
       const myAnswer = data.answers[this.socket.id];
       const myPoints = data.pointsGained ? (data.pointsGained[this.socket.id] || 0) : 0;
 
       if (myAnswer === data.correctIndex) {
+        this.playSound('correct');
         this.turnIndicator.textContent = `🎉 DOBRA ODPOWIEDŹ! ZDOBYWASZ +${myPoints} PKT!`;
         this.turnIndicator.style.color = "#00ff00"; 
         this.turnIndicator.style.textShadow = "0 0 10px #00ff00";
-      } else if (myAnswer !== undefined) {
-        this.turnIndicator.textContent = `❌ ZŁA ODPOWIEDŹ! (0 PKT)`;
-        this.turnIndicator.style.color = "#ff0000"; 
-        this.turnIndicator.style.textShadow = "0 0 10px #ff0000";
       } else {
-        this.turnIndicator.textContent = `⏰ BRAK ODPOWIEDZI! (0 PKT)`;
-        this.turnIndicator.style.color = "#ff0000";
+        this.playSound('wrong');
+        if (myAnswer !== undefined) {
+          this.turnIndicator.textContent = `❌ ZŁA ODPOWIEDŹ! (0 PKT)`;
+        } else {
+          this.turnIndicator.textContent = `⏰ BRAK ODPOWIEDZI! (0 PKT)`;
+        }
+        this.turnIndicator.style.color = "#ff0000"; 
         this.turnIndicator.style.textShadow = "0 0 10px #ff0000";
       }
 

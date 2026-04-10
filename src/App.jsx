@@ -2,17 +2,25 @@ import React, { useEffect, useRef, useState } from 'react';
 import { QuizGame } from './game.js';
 import { io } from 'socket.io-client';
 
-const socket = io('https://zerroty-server.onrender.com'); // Zmień na swój link serwera w razie potrzeby
+const socket = io('https://zerroty-server.onrender.com'); 
 
 function App() {
   const mountRef = useRef(null);
   const gameRef = useRef(null);
   
+  // Audio Ref do muzyki
+  const bgMusicRef = useRef(null);
+  const [musicStarted, setMusicStarted] = useState(false);
+
   const [gameMode, setGameMode] = useState(null); 
   const [gameState, setGameState] = useState('selectMode'); 
   
   const [playersCount, setPlayersCount] = useState(2);
-  const [roundsCount, setRoundsCount] = useState(10); 
+  
+  // Rundy i pytania
+  const [roundsCount, setRoundsCount] = useState(3); 
+  const [questionsPerRound, setQuestionsPerRound] = useState(10);
+
   const [playersData, setPlayersData] = useState([{name: 'Gracz 1', avatar: null, specialization: ''}, {name: 'Gracz 2', avatar: null, specialization: ''}]);
   const [allCategories, setAllCategories] = useState([]);
   const [selectedCats, setSelectedCats] = useState([]);
@@ -31,6 +39,11 @@ function App() {
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
 
   useEffect(() => {
+    // Inicjalizacja muzyki w tle
+    bgMusicRef.current = new Audio('/music.mp3');
+    bgMusicRef.current.loop = true;
+    bgMusicRef.current.volume = 0.3; // Sciszona, by nie zagłuszała efektów
+
     gameRef.current = new QuizGame(mountRef.current);
     
     fetch('/questions.json').then(res => res.json()).then(data => {
@@ -55,6 +68,7 @@ function App() {
     return () => {
       socket.off('roomCreated'); socket.off('lobbyUpdate'); socket.off('errorMsg');
       if (mountRef.current && mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
+      if (bgMusicRef.current) bgMusicRef.current.pause();
     };
   }, []);
 
@@ -75,6 +89,14 @@ function App() {
     });
   }, [playersCount]);
 
+  // Uruchamiamy muzykę przy pierwszym kliknięciu w menu
+  const triggerMusic = () => {
+    if (!musicStarted && bgMusicRef.current) {
+      bgMusicRef.current.play().catch(e => console.log("Zablokowano autoodtwarzanie audio", e));
+      setMusicStarted(true);
+    }
+  };
+
   const toggleCategory = (cat) => setSelectedCats(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
   const updatePlayer = (index, field, value) => {
     const newData = [...playersData]; newData[index][field] = value; setPlayersData(newData);
@@ -84,10 +106,9 @@ function App() {
   const startLocalGame = () => {
     if(selectedCats.length === 0) return alert("Wybierz przynajmniej jedną kategorię!");
     setGameState('playing');
-    gameRef.current.start(playersData, roundsCount, selectedCats);
+    gameRef.current.start(playersData, roundsCount, questionsPerRound, selectedCats);
   };
 
-  // Zunifikowane wyjście do Menu Głównego
   const quitToMenu = () => {
     if (gameMode === 'online' && currentRoom) {
       socket.emit('leaveRoom', { roomId: currentRoom });
@@ -114,7 +135,7 @@ function App() {
 
   const startOnlineGame = () => {
     if(selectedCats.length === 0) return alert("Wybierz przynajmniej jedną kategorię!");
-    socket.emit('startGame', { roomId: currentRoom, roundsCount: roundsCount, categories: selectedCats });
+    socket.emit('startGame', { roomId: currentRoom, roundsCount, questionsPerRound, categories: selectedCats });
   };
 
   return (
@@ -131,8 +152,15 @@ function App() {
           <h1>Zerroty: Wielki Quiz Y2K</h1>
           <h3 style={{ marginBottom: '30px', color: '#00ffff' }}>Wybierz tryb gry:</h3>
           <div style={{ display: 'flex', gap: '20px', justifyContent: 'center' }}>
-            <button className="start-btn" onClick={() => { setGameMode('local'); setGameState('setupLocal'); }}>HOT-SEAT (Lokalnie)</button>
-            <button className="start-btn" style={{ borderColor: '#00ff00', color: '#00ff00', textShadow: '0 0 10px #00ff00' }} onClick={() => { setGameMode('online'); setGameState('loginOnline'); }}>MULTIPLAYER (Online)</button>
+            <button className="start-btn" onClick={() => { triggerMusic(); setGameMode('local'); setGameState('setupLocal'); }}>HOT-SEAT (Lokalnie)</button>
+            <button className="start-btn" style={{ borderColor: '#00ff00', color: '#00ff00', textShadow: '0 0 10px #00ff00' }} onClick={() => { triggerMusic(); setGameMode('online'); setGameState('loginOnline'); }}>MULTIPLAYER (Online)</button>
+          </div>
+          
+          <div className="credits-footer">
+            <p>Music & Sound Effects from <a href="https://pixabay.com/" target="_blank" rel="noreferrer">Pixabay</a>:</p>
+            <p>
+              Audio by <a href="https://pixabay.com/users/freesound_community-46691455/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=6033" target="_blank" rel="noreferrer">freesound_community</a>, <a href="https://pixabay.com/users/tuomas_data-40753689/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=199825" target="_blank" rel="noreferrer">Tuomas_Data</a>, & <a href="https://pixabay.com/users/sergequadrado-24990007/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=251872" target="_blank" rel="noreferrer">Sergei Chetvertnykh</a>
+            </p>
           </div>
         </div>
       )}
@@ -140,16 +168,12 @@ function App() {
       {gameState === 'setupLocal' && (
          <div id="main-menu" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
           <h2 style={{ color: '#00ffff' }}>TRYB HOT-SEAT</h2>
-          <div className="menu-section">
-            <h3>Kategorie:</h3>
-            <div className="category-select-box">
-              {allCategories.map(cat => <button key={cat} className={`cat-btn ${selectedCats.includes(cat) ? 'active' : ''}`} onClick={() => toggleCategory(cat)}>{cat}</button>)}
-            </div>
-          </div>
+          
           <div className="menu-section">
             <h3>Liczba graczy:</h3>
             {[1, 2, 3, 4].map(num => <button key={num} className={`menu-btn ${playersCount === num ? 'active' : ''}`} onClick={() => setPlayersCount(num)}>{num}</button>)}
           </div>
+          
           <div className="menu-section">
             {playersData.map((p, i) => (
               <div key={i} className="player-setup">
@@ -163,10 +187,25 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="menu-section">
-            <h3>Liczba pytań w rundzie:</h3>
-            {[5, 10, 15, 20].map(num => <button key={num} className={`menu-btn ${roundsCount === num ? 'active' : ''}`} onClick={() => setRoundsCount(num)}>{num}</button>)}
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '40px' }}>
+              <div className="menu-section">
+                <h3>Liczba rund:</h3>
+                {[1, 2, 3, 5].map(num => <button key={num} className={`menu-btn ${roundsCount === num ? 'active' : ''}`} onClick={() => setRoundsCount(num)}>{num}</button>)}
+              </div>
+              <div className="menu-section">
+                <h3>Pytań na rundę:</h3>
+                {[5, 10, 15, 20].map(num => <button key={num} className={`menu-btn ${questionsPerRound === num ? 'active' : ''}`} onClick={() => setQuestionsPerRound(num)}>{num}</button>)}
+              </div>
           </div>
+
+          <div className="menu-section">
+            <h3>Kategorie:</h3>
+            <div className="category-select-box">
+              {allCategories.map(cat => <button key={cat} className={`cat-btn ${selectedCats.includes(cat) ? 'active' : ''}`} onClick={() => toggleCategory(cat)}>{cat}</button>)}
+            </div>
+          </div>
+          
           <div style={{display: 'flex', gap: '10px', justifyContent: 'center'}}>
             <button className="start-btn" style={{ fontSize: '1rem', padding: '10px' }} onClick={() => setGameState('selectMode')}>Cofnij</button>
             <button className="start-btn" onClick={startLocalGame}>START GRY</button>
@@ -210,27 +249,32 @@ function App() {
           
           {isHost ? (
             <div>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '20px' }}>
+                  <div>
+                    <span style={{ marginRight: '10px', fontSize: '1.1rem' }}>Liczba rund:</span>
+                    <select value={roundsCount} onChange={e => setRoundsCount(Number(e.target.value))} className="spec-select" style={{ fontSize: '1rem', padding: '5px' }}>
+                      {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <span style={{ marginRight: '10px', fontSize: '1.1rem' }}>Pytań na rundę:</span>
+                    <select value={questionsPerRound} onChange={e => setQuestionsPerRound(Number(e.target.value))} className="spec-select" style={{ fontSize: '1rem', padding: '5px' }}>
+                      {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+              </div>
+
               <div className="menu-section" style={{ marginTop: '20px' }}>
                 <h3 style={{color: '#00ffff'}}>Wybierz Kategorie:</h3>
                 <div className="category-select-box">
                   {allCategories.map(cat => <button key={cat} className={`cat-btn ${selectedCats.includes(cat) ? 'active' : ''}`} onClick={() => toggleCategory(cat)}>{cat}</button>)}
                 </div>
               </div>
-
-              <div style={{ marginBottom: '20px' }}>
-                <span style={{ marginRight: '10px', fontSize: '1.1rem' }}>Ilość pytań:</span>
-                <select value={roundsCount} onChange={e => setRoundsCount(Number(e.target.value))} className="spec-select" style={{ fontSize: '1.1rem', padding: '5px' }}>
-                  <option value={5}>5 pytań</option>
-                  <option value={10}>10 pytań</option>
-                  <option value={15}>15 pytań</option>
-                  <option value={20}>20 pytań</option>
-                  <option value={30}>30 pytań</option>
-                </select>
-              </div>
+              
               <button className="start-btn" onClick={startOnlineGame}>ROZPOCZNIJ GRĘ ONLINE</button>
             </div>
           ) : (
-            <p style={{ color: '#ffff00', fontSize: '1.2rem', marginTop: '20px' }}>Host wybiera kategorie. Oczekiwanie na start...</p>
+            <p style={{ color: '#ffff00', fontSize: '1.2rem', marginTop: '20px' }}>Host wybiera parametry i kategorie. Oczekiwanie na start...</p>
           )}
           <br/>
           <button className="start-btn" style={{ fontSize: '1rem', padding: '10px', marginTop: '20px', borderColor: '#555', color: '#aaa' }} onClick={quitToMenu}>Wyjdź z pokoju</button>
@@ -238,6 +282,9 @@ function App() {
       )}
 
       <div id="ui-container" style={{ display: (gameState === 'playing' || gameState === 'playingOnline') ? 'flex' : 'none' }}>
+        
+        <button id="pause-btn">⏸ PAUZA</button>
+
         <div id="player-status-bar"></div>
         <div id="quiz-area">
           <div id="category-box">ŁADOWANIE...</div>
